@@ -79,7 +79,10 @@ HINWEISE = f"""
 """
 
 GEMEINSAM = f"""Du bist Teil der Lernumgebung "{APP_NAME}" für Studierende im Bachelorstudiengang Pflege im Modul Projektmanagement.
-Die Studierenden erbringen zwei Leistungen. Erstens führen sie ein Fachgespräch von 15 Minuten zu ihrem Projektvorhaben. Darin stellen sie die Inhalte des Projektantrags argumentativ vor und diskutieren sie. Zweitens erstellen sie eine Projektdetailplanung und stellen sie vor.
+Die Studierenden erbringen genau zwei Leistungen, beide als Gruppenarbeit.
+1. Fachgespräch zum Projektantrag. Die Gruppe erarbeitet die Inhalte wie im Projektantragsformular und stellt sie in einem Fachgespräch von 15 Minuten argumentativ vor und diskutiert sie.
+2. Projektdetailplanung. Die Gruppe erstellt eine Projektdetailplanung und stellt sie vor.
+Es gibt keine weiteren Leistungsnachweise. Weil es Gruppenarbeiten sind, kann eine Person allein oder stellvertretend für ihre Gruppe schreiben.
 
 Grundregeln
 - Antworte auf Deutsch in Schweizer Rechtschreibung (ss statt ß), klar, freundlich und in der Du Form.
@@ -112,15 +115,22 @@ AGENTEN = {
     "coach": {
         "titel": "Coach",
         "icon": "🧭",
-        "kurz": "Sparring beim Erarbeiten von Projektantrag und Detailplanung. Erklärt und fragt nach, macht aber nicht für dich.",
+        "kurz": "Sparring für eure zwei Gruppenarbeiten, das Fachgespräch zum Projektantrag und die Projektdetailplanung. Erklärt und fragt nach, macht aber nicht für euch.",
         "hinweis": True,
         "welcome": (
-            "Hallo, ich bin dein Coach. Ich helfe dir, deinen Projektantrag und deine Detailplanung "
-            "selbst zu erarbeiten. Ich stelle Fragen, erkläre Prinzipien und zeige Beispiele aus anderen "
-            "Themen, schreibe aber nichts für dich. Erzähl mir kurz, worum es in deinem Projekt geht "
-            "und woran du gerade arbeitest."
+            "Hallo, ich bin dein Coach. Ich begleite dich und deine Gruppe bei euren zwei Arbeiten, "
+            "dem Fachgespräch zum Projektantrag und der Projektdetailplanung. Ich stelle Fragen, erkläre "
+            "Prinzipien und zeige Beispiele aus anderen Themen, schreibe aber nichts für euch. "
+            "Wähle oben, woran ihr gerade arbeitet, oder erzähl mir kurz, worum es in eurem Projekt geht."
         ),
-        "prompt": """Deine Rolle ist der Coach im Sinne eines Sparringspartners. Ziel ist, dass die Person ihr Projekt selbst durchdenkt und im Fachgespräch jede Entscheidung begründen kann.
+        "prompt": """Deine Rolle ist der Coach im Sinne eines Sparringspartners. Ziel ist, dass die Gruppe ihr Projekt selbst durchdenkt und jede Entscheidung begründen kann.
+Die Begleitung hat zwei Schwerpunkte, entsprechend den zwei Gruppenarbeiten
+- Fachgespräch zum Projektantrag. Die Inhalte wie im Projektantragsformular erarbeiten und so vorbereiten, dass die Gruppe sie in 15 Minuten argumentativ vorstellen und in der Diskussion verteidigen kann.
+- Projektdetailplanung. Die Detailplanung schrittweise erarbeiten und die Vorstellung vorbereiten.
+Gruppenarbeit
+- Sprich die Person mit du an und beziehe die Gruppe ein, zum Beispiel "Wie seht ihr das in der Gruppe?".
+- Rege an, Zwischenergebnisse in der Gruppe zu besprechen und Entscheidungen gemeinsam zu treffen.
+- Achte darauf, dass im Fachgespräch alle Gruppenmitglieder die Inhalte vertreten und begründen können, nicht nur die Person, die gerade schreibt.
 Was du tust
 - Du arbeitest mit Fragen. Stelle pro Antwort höchstens drei gezielte Fragen.
 - Gehe schrittweise vor und bearbeite einen Baustein nach dem anderen in der Reihenfolge des Skripts.
@@ -169,9 +179,14 @@ Aktueller Modus Fachgespräch üben
 - Nach etwa sechs Fragen oder wenn die Person "Ende" schreibt, gib eine kurze Rückmeldung mit Stärken und offenen Punkten in der bekannten Gliederung, ohne Note.
 """
 
+COACH_FOKUS = {
+    "antrag": "Aktueller Schwerpunkt Fachgespräch zum Projektantrag. Bleib bei den Inhalten des Projektantrags und bei der argumentativen Vorbereitung des Fachgesprächs. Geh die Inhalte Schritt für Schritt in der Reihenfolge des Skripts durch.",
+    "detail": "Aktueller Schwerpunkt Projektdetailplanung. Bleib bei den Elementen der Detailplanung, wie sie im Skript beschrieben sind, und bei der Vorbereitung ihrer Vorstellung. Geh Schritt für Schritt vor.",
+}
+
 ANKER = {
     "chat": "",
-    "coach": "Projektantrag Projektauftrag Ausgangslage Problem Ziele Detailplanung Arbeitspakete",
+    "coach": "Projektantrag Projektauftrag Ausgangslage Problem Ziele Detailplanung Arbeitspakete Fachgespräch",
     "chef": "Projektantrag Ziele Nutzen Ressourcen Kosten Risiken Meilensteine Projektdetailplanung",
 }
 
@@ -408,12 +423,16 @@ def neu_starten(agent):
     st.session_state.pop(f"msgs_{agent}", None)
     if agent == "chef":
         st.session_state.pop("fachgespraech", None)
+    if agent == "coach":
+        st.session_state.pop("coach_fokus", None)
 
 
 def systemprompt(agent, frage):
     teile = [GEMEINSAM, AGENTEN[agent]["prompt"]]
     if agent == "chef" and st.session_state.get("fachgespraech"):
         teile.append(MODUS_FACHGESPRAECH)
+    if agent == "coach" and st.session_state.get("coach_fokus"):
+        teile.append(COACH_FOKUS[st.session_state.coach_fokus])
     dok = st.session_state.get("upload_text") if agent in ("coach", "chef") else None
     suchtext = f"{frage} {ANKER[agent]}"
     if dok:
@@ -490,9 +509,8 @@ with st.sidebar:
         st.image(str(LOGO), use_container_width=True)
     st.markdown(f"## {APP_NAME}")
     st.markdown(
-        f"Ich bin **{APP_NAME}** und begleite dich im Modul **Projektmanagement** bei der Vorbereitung auf deine beiden "
-        "Leistungsnachweise, das **Fachgespräch zum Projektantrag** und die **Vorstellung deiner "
-        "Projektdetailplanung**. Ich gebe Hinweise und stelle Fragen. Die Lösung erarbeitest du selbst."
+        f"Ich bin **{APP_NAME}** und begleite dich im Modul **Projektmanagement** bei der Vorbereitung auf eure beiden "
+        "Gruppenarbeiten, das **Fachgespräch zum Projektantrag** und die **Projektdetailplanung**. Ich gebe Hinweise und stelle Fragen. Die Lösung erarbeitest du selbst."
     )
     st.warning("**Bitte beachten**\n" + HINWEISE)
 
@@ -553,14 +571,28 @@ if zurueck.button("Zur Übersicht", use_container_width=True):
 
 # Bausteine je Agent
 if agent == "coach":
-    st.caption("Womit möchtest du anfangen?")
-    c1, c2, c3 = st.columns(3)
-    if c1.button("Projektantrag erarbeiten", use_container_width=True):
-        st.session_state.pending = ("coach", "Ich möchte meinen Projektantrag erarbeiten. Wie gehen wir vor?")
-    if c2.button("Projektdetailplanung erarbeiten", use_container_width=True):
-        st.session_state.pending = ("coach", "Ich möchte meine Projektdetailplanung erarbeiten. Wie gehen wir vor?")
-    if c3.button("Fachgespräch vorbereiten", use_container_width=True):
-        st.session_state.pending = ("coach", "Ich möchte mich auf das Fachgespräch vorbereiten. Wie gehe ich das an?")
+    st.info(
+        "**Gruppenarbeit.** Beide Arbeiten erstellt ihr als Gruppe. Besprecht die Hinweise des Coachs "
+        "gemeinsam und trefft Entscheidungen zusammen. Im Fachgespräch sollte jedes Gruppenmitglied "
+        "alle Inhalte vertreten und begründen können."
+    )
+    st.caption("Woran arbeitet ihr gerade?")
+    fokus = st.session_state.get("coach_fokus")
+    c1, c2 = st.columns(2)
+    if c1.button("1 · Fachgespräch zum Projektantrag", use_container_width=True,
+                 type="primary" if fokus == "antrag" else "secondary"):
+        st.session_state.coach_fokus = "antrag"
+        st.session_state.pending = (
+            "coach",
+            "Wir bereiten als Gruppe das Fachgespräch zum Projektantrag vor. Wie gehen wir vor?",
+        )
+    if c2.button("2 · Projektdetailplanung", use_container_width=True,
+                 type="primary" if fokus == "detail" else "secondary"):
+        st.session_state.coach_fokus = "detail"
+        st.session_state.pending = (
+            "coach",
+            "Wir erarbeiten als Gruppe unsere Projektdetailplanung. Wie gehen wir vor?",
+        )
 
 if agent in ("coach", "chef"):
     datei = st.file_uploader(
