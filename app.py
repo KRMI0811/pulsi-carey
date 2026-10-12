@@ -1,5 +1,5 @@
 """
-Carey
+Pulsi
 Lernbegleitung für das Modul Projektmanagement im Bachelorstudiengang Pflege
 
 Oberfläche   Streamlit Community Cloud
@@ -40,7 +40,7 @@ def cfg(key, default=None):
     return wert.strip() if isinstance(wert, str) else wert
 
 
-APP_NAME = cfg("APP_NAME", "Carey")
+APP_NAME = cfg("APP_NAME", "Pulsi")
 APP_PASSWORD = cfg("APP_PASSWORD", "")
 DOZENT = cfg("DOZENT", "der Dozent des Moduls")  # immer im Nominativ verwendet
 
@@ -483,7 +483,7 @@ if not st.session_state.get("angemeldet"):
 # Seitenleiste mit Vorstellung und Hinweisen
 # ---------------------------------------------------------------------------
 if "agent" not in st.session_state:
-    st.session_state.agent = "chat"
+    st.session_state.agent = None  # Startseite zeigt nur die drei Karten
 
 with st.sidebar:
     if LOGO.exists():
@@ -503,10 +503,11 @@ with st.sidebar:
     else:
         st.caption("Es ist noch kein Kursskript hinterlegt.")
 
-    st.divider()
-    if st.button("Aktuelles Gespräch neu starten", use_container_width=True):
-        neu_starten(st.session_state.agent)
-        st.rerun()
+    if st.session_state.agent:
+        st.divider()
+        if st.button("Aktuelles Gespräch neu starten", use_container_width=True):
+            neu_starten(st.session_state.agent)
+            st.rerun()
 
     if st.session_state.testmodus:
         st.divider()
@@ -521,7 +522,7 @@ with st.sidebar:
 # Hauptbereich mit den drei Agenten
 # ---------------------------------------------------------------------------
 st.title(APP_NAME)
-st.caption("Wähle aus, womit ich dich unterstützen soll.")
+st.caption("Wähle aus, womit ich dich unterstützen soll. Mit einem Klick öffnest du die jeweilige Funktion.")
 
 spalten = st.columns(3)
 for spalte, (key, a) in zip(spalten, AGENTEN.items()):
@@ -531,18 +532,24 @@ for spalte, (key, a) in zip(spalten, AGENTEN.items()):
             st.write(a["kurz"])
             aktiv = st.session_state.agent == key
             if st.button(
-                "Geöffnet" if aktiv else "Öffnen",
+                "Schliessen" if aktiv else f"{a['titel']} öffnen",
                 key=f"wahl_{key}",
                 type="primary" if aktiv else "secondary",
                 use_container_width=True,
             ):
-                st.session_state.agent = key
+                st.session_state.agent = None if aktiv else key
                 st.rerun()
 
 agent = st.session_state.agent
+if agent is None:
+    st.stop()  # Unterfunktionen erscheinen erst nach Auswahl einer Karte
 a = AGENTEN[agent]
 st.divider()
-st.subheader(f"{a['icon']} {a['titel']}")
+kopf, zurueck = st.columns([4, 1])
+kopf.subheader(f"{a['icon']} {a['titel']}")
+if zurueck.button("Zur Übersicht", use_container_width=True):
+    st.session_state.agent = None
+    st.rerun()
 
 # Bausteine je Agent
 if agent == "coach":
