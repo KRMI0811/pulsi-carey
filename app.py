@@ -49,6 +49,7 @@ API_KEY = cfg("API_KEY", "")
 MODEL = cfg("MODEL", "openai/gpt-oss-120b")
 PROVIDER = cfg("PROVIDER_NAME", "Groq")
 REASONING = cfg("REASONING_EFFORT", "")
+ANTHROPIC = "anthropic.com" in API_BASE  # Claude nutzt eine eigene Schnittstelle
 TEMPERATURE = float(cfg("TEMPERATURE", 0.5))
 MAX_TOKENS = int(cfg("MAX_TOKENS", 1500))
 TIMEOUT = int(cfg("TIMEOUT", 90))
@@ -371,22 +372,30 @@ class KIFehler(Exception):
 def llm(messages):
     if not API_KEY:
         raise KIFehler("Es ist kein Zugangsschlüssel für den KI Dienst hinterlegt. Bitte informiere die Lehrperson.")
-    body = {"model": MODEL, "messages": messages, "temperature": TEMPERATURE, "max_tokens": MAX_TOKENS, "stream": False}
-    if REASONING:
-        body["reasoning_effort"] = REASONING
-        body["max_tokens"] = MAX_TOKENS + 1500  # Platz für internes Nachdenken
+    if ANTHROPIC:
+        # Native Messages API von Anthropic (Claude). Systemprompt steht separat,
+        # Temperatur wird bewusst nicht gesendet, da neuere Claude Modelle Werte unter 1 ablehnen.
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        dialog = [m for m in messages if m["role"] != "system"]
+        body = {"model": MODEL, "max_tokens": MAX_TOKENS, "messages": dialog}
+        if system:
+            body["system"] = system
+        url = API_BASE.rstrip("/") + "/messages"
+        headers = {"x-api-key": API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+    else:
+        body = {"model": MODEL, "messages": messages, "temperature": TEMPERATURE, "max_tokens": MAX_TOKENS, "stream": False}
+        if REASONING:
+            body["reasoning_effort"] = REASONING
+            body["max_tokens"] = MAX_TOKENS + 1500  # Platz für internes Nachdenken
+        url = API_BASE.rstrip("/") + "/chat/completions"
+        headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     try:
-        r = requests.post(
-            API_BASE.rstrip("/") + "/chat/completions",
-            headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-            json=body,
-            timeout=TIMEOUT,
-        )
+        r = requests.post(url, headers=headers, json=body, timeout=TIMEOUT)
     except requests.Timeout:
         raise KIFehler("Der KI Dienst hat nicht rechtzeitig geantwortet. Bitte versuche es in einer Minute noch einmal.")
     except requests.RequestException:
         raise KIFehler("Es konnte keine Verbindung zum KI Dienst aufgebaut werden. Bitte versuche es später noch einmal.")
-    if r.status_code == 401:
+    if r.status_code in (401, 403):
         raise KIFehler("Der Zugangsschlüssel des KI Dienstes ist ungültig. Bitte informiere die Lehrperson.")
     if r.status_code == 404:
         raise KIFehler("Das eingestellte Sprachmodell wurde nicht gefunden. Bitte informiere die Lehrperson.")
@@ -394,14 +403,25 @@ def llm(messages):
         raise KIFehler("Die Anfrage ist zu lang. Lade eine kürzere Fassung hoch oder starte das Gespräch neu.")
     if r.status_code == 429:
         raise KIFehler("Gerade nutzen sehr viele Personen den Assistenten. Bitte warte eine Minute und versuche es dann erneut.")
+    if r.status_code in (402, 529) or (r.status_code == 400 and "credit" in r.text.lower()):
+        raise KIFehler("Das Guthaben oder Kontingent des KI Dienstes ist aufgebraucht oder der Dienst ist überlastet. Bitte informiere die Lehrperson.")
     if r.status_code >= 500:
         raise KIFehler("Der KI Dienst ist im Moment überlastet. Bitte versuche es in ein paar Minuten noch einmal.")
     if r.status_code != 200:
-        detail = f" (Code {r.status_code}: {r.text[:200]})" if st.session_state.get("testmodus") else ""
-        raise KIFehler("Der KI Dienst hat die Anfrage abgelehnt." + detail)
+        try:
+            grund = r.json().get("error", {})
+            grund = grund.get("message", "") if isinstance(grund, dict) else str(grund)
+        except ValueError:
+            grund = r.text
+        grund = re.sub(r"(sk-|gsk_)[A-Za-z0-9_\-]+", "***", grund or "")[:200]
+        raise KIFehler(f"Der KI Dienst hat die Anfrage abgelehnt (Code {r.status_code}). {grund}".strip())
     try:
-        text = r.json()["choices"][0]["message"].get("content") or ""
-    except (ValueError, KeyError, IndexError):
+        daten = r.json()
+        if ANTHROPIC:
+            text = "".join(b.get("text", "") for b in daten["content"] if b.get("type") == "text")
+        else:
+            text = daten["choices"][0]["message"].get("content") or ""
+    except (ValueError, KeyError, IndexError, TypeError):
         text = ""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
     if not text:
